@@ -413,6 +413,47 @@ app.get("/api/getboards", async (req, res) => {
     res.status(400).json({ msg: "Server error", error: error });
   }
 });
+// get number of boards
+app.get("/api/getnumberofboards", async (req, res) => {
+  const { email } = req.query;
+  try {
+    const project = await Project.findOne({ user_email: email });
+    if (!project) return res.status(401).json({ msg: "project not found" });
+    const boards = await Board.find({
+      user_email: email,
+    });
+    // Map over boards to extract the id and name
+    const MyBoards = boards.map((board) => ({
+      id: board._id,
+      name: board.name,
+      belongsTo: board.projectId,
+    }));
+    res.status(200).json(MyBoards);
+  } catch (error) {
+    res.status(400).json({ msg: "Server error", error: error });
+  }
+});
+// get all tasks
+app.get("/api/getalltasks", async (req, res) => {
+  const { email } = req.query;
+  try {
+    const project = await Project.findOne({ user_email: email });
+    if (!project) return res.status(401).json({ msg: "project not found" });
+    const tasks = await Task.find({
+      user_email: email,
+    });
+    // Map over boards to extract the id and name
+    const MyTasks = tasks.map((task) => ({
+      id: task._id,
+      name: task.name,
+      projectId: task.projectId,
+      curentStatus: task.curentStatus,
+    }));
+    res.status(200).json(MyTasks);
+  } catch (error) {
+    res.status(400).json({ msg: "Server error", error: error });
+  }
+});
 // create Task
 app.post("/api/newtask", async (req, res) => {
   const {
