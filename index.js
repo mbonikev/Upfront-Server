@@ -11,6 +11,7 @@ const Project = require("./models/project");
 const TrashProject = require("./models/trashProject");
 const Board = require("./models/board");
 const Task = require("./models/task");
+const Groq = require("groq-sdk");
 const app = express();
 app.use(express.json());
 const port = 5000;
@@ -30,6 +31,76 @@ app.get("/", async (req, res) => {
     res.json({ msg: "Server error" });
   }
 });
+
+const client = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
+
+// API endpoint to generate and save boards
+app.post("/api/generateBoards", async (req, res) => {
+  const { projectDescription, projectId, userEmail } = req.body;
+
+  try {
+    // Call AI API to generate board titles
+    const response = await client.chat.completions.create({
+      messages: [
+        { role: "system", content: "You are a helpful assistant." },
+        {
+          role: "user",
+          content: `Generate a list of concise project management board titles for the following project description. Each board title should be short, representing distinct key areas of the project.
+format example:
+1.
+2.
+3.
+4.
+and so on
+
+Project Description: 
+
+${projectDescription}
+`,
+        },
+      ],
+      model: "llama3-8b-8192",
+    });
+
+    // Extract board titles from AI response
+    const boardsResponse = response.choices[0].message.content;
+    const boardTitles =
+      boardsResponse
+        .match(/\d+\.\s([^\n]+)/g) // Match the number, period, and the title text
+        ?.map((title) => title.replace(/^\d+\.\s/, "").trim()) || [];
+
+    if (boardTitles.length === 0) {
+      return res.status(400).json({ error: "No boards generated." });
+    }
+
+    // Find the project by projectId and userEmail
+    const project = await Project.findOne({ _id: projectId, user_email: userEmail });
+    if (!project) {
+      return res.status(404).json({ error: "Project not found." });
+    }
+
+    // Save all generated boards to the database
+    const newBoards = await Board.insertMany(
+      boardTitles.map((title) => ({
+        name: title,
+        projectId: projectId,
+        user_email: userEmail,
+      }))
+    );
+
+    // Respond with the saved boards
+    res.status(200).json({
+      message: "Boards generated and saved successfully.",
+      boards: newBoards, // Returns saved boards with IDs
+    });
+  } catch (err) {
+    console.error("Error:", err);
+    res.status(500).json({ error: "Internal server error.", details: err.message });
+  }
+});
+
 // Login
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
@@ -327,7 +398,9 @@ app.patch("/api/updateprojectdetails", async (req, res) => {
       { new: true } // Return the updated document
     );
     if (!project)
-      return res.status(404).json({ message: "ndaq Project not found", name: project.name });
+      return res
+        .status(404)
+        .json({ message: "ndaq Project not found", name: project.name });
     res.status(200).json({ name: project.name, desc: project.desc });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -530,7 +603,7 @@ app.get("/api/gettasks", async (req, res) => {
       startingOn: task.startingOn,
       due: task.due,
       boardId: task.boardId,
-    })); 
+    }));
     res.status(200).json(taskData);
   } catch (error) {
     res.status(400).json({ msg: "Server error", error: error });
