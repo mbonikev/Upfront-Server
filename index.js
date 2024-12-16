@@ -49,10 +49,10 @@ app.post("/api/generateBoards", async (req, res) => {
           role: "user",
           content: `Generate a list of concise project management board titles for the following project description. Each board title should be short, representing distinct key areas of the project.
 format example:
-1.
-2.
-3.
-4.
+1. Todo
+2. Design
+3. Development
+4. Testing
 and so on
 
 Project Description: 
