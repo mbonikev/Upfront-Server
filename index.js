@@ -76,7 +76,10 @@ ${projectDescription}
     }
 
     // Find the project by projectId and userEmail
-    const project = await Project.findOne({ _id: projectId, user_email: userEmail });
+    const project = await Project.findOne({
+      _id: projectId,
+      user_email: userEmail,
+    });
     if (!project) {
       return res.status(404).json({ error: "Project not found." });
     }
@@ -97,7 +100,9 @@ ${projectDescription}
     });
   } catch (err) {
     console.error("Error:", err);
-    res.status(500).json({ error: "Internal server error.", details: err.message });
+    res
+      .status(500)
+      .json({ error: "Internal server error.", details: err.message });
   }
 });
 
@@ -436,6 +441,76 @@ app.post("/api/movetotrash", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+// wipe
+app.post("/api/wipe", async (req, res) => {
+  const { choice, projectId, userEmail } = req.body;
+  try {
+    const project = await Project.findOne({
+      _id: projectId,
+      user_email: userEmail,
+    });
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    if (choice === "1") {
+      await Board.deleteMany({
+        projectId: projectId,
+        user_email: userEmail,
+      });
+      await Task.deleteMany({
+        projectId: projectId,
+        user_email: userEmail,
+      });
+      return res.status(200).json({
+        message: "Boards & Tasks wiped successfully",
+        result: null,
+      });
+    }
+
+    if (choice === "2") {
+      await Task.deleteMany({
+        projectId: projectId,
+        user_email: userEmail,
+      });
+      return res.status(200).json({
+        message: "Tasks wiped successfully",
+        result: null,
+      });
+    }
+
+    await Board.deleteMany({
+      projectId: projectId,
+      user_email: userEmail,
+    });
+    await Task.deleteMany({
+      projectId: projectId,
+      user_email: userEmail,
+    });
+
+    // Update project details
+    const result = await Project.findOneAndUpdate(
+      { user_email: userEmail },
+      {
+        name: "",
+        desc: "",
+        curentStatus: "active",
+      },
+      { new: true }
+    ).select("name desc");
+
+    if (!result) {
+      return res.status(404).json({
+        message: "Project not found",
+        result: null,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Operation successful",
+      result,
+    });
+  } catch (error) {}
 });
 // create board
 app.post("/api/newboard", async (req, res) => {
