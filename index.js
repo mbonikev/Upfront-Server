@@ -40,77 +40,83 @@ const client = new Groq({
 app.post("/api/generateBoards", async (req, res) => {
   const { projectDescription, projectId, userEmail, generateType } = req.body;
 
+  // Early validation for required fields
+  if (!projectDescription || !generateType) {
+    return res.status(400).json({ error: "Missing required fields." });
+  }
+
   try {
-    // boards only
     if (generateType === "Boards Only") {
-      // Call AI API to generate board titles
       const response = await client.chat.completions.create({
         messages: [
           { role: "system", content: "You are a helpful assistant." },
           {
             role: "user",
             content: `Generate a list of concise project management board titles for the following project description. Each board title should be short, representing distinct key areas of the project.
-format example:
-1. Todo
-2. Design
-3. Development
-4. Testing
-and so on
-
-each board title should be 1 or 2 words, 3 words max.
-
-Project Description: 
-
-${projectDescription}
-`,
+            format example:
+            1. Todo
+            2. Design
+            3. Development
+            4. Testing
+            and so on
+            
+            each board title should be 1 or 2 words, 3 words max.
+            
+            Project Description: 
+            
+            ${projectDescription}
+            `,
           },
         ],
         model: "llama3-8b-8192",
       });
 
-      // Extract board titles from AI response
-      const boardsResponse = response.choices[0].message.content;
+      const boardsResponse = response.choices[0].message.content || "";
       const boardTitles =
         boardsResponse
-          .match(/\d+\.\s([^\n]+)/g) // Match the number, period, and the title text
+          .match(/\d+\.\s([^\n]+)/g)
           ?.map((title) => title.replace(/^\d+\.\s/, "").trim()) || [];
 
       if (boardTitles.length === 0) {
         return res.status(400).json({ error: "No boards generated." });
       }
 
-      // Find the project by projectId and userEmail
       const project = await Project.findOne({
         _id: projectId,
-        user_email: userEmail,
+        user_email: userEmail.toLowerCase(),
       });
       if (!project) {
         return res.status(404).json({ error: "Project not found." });
       }
 
-      // Save all generated boards to the database
-      const newBoards = await Board.insertMany(
-        boardTitles.map((title) => ({
-          name: title,
-          projectId: projectId,
-          user_email: userEmail,
-        }))
-      );
+      try {
+        const newBoards = await Board.insertMany(
+          boardTitles.map((title) => ({
+            name: title,
+            projectId: projectId,
+            user_email: userEmail,
+          }))
+        );
+        return res.status(200).json({
+          message: "Boards generated and saved successfully.",
+          boards: newBoards,
+        });
+      } catch (err) {
+        console.error("Error inserting boards:", err);
+        return res
+          .status(500)
+          .json({ error: "Failed to save boards.", details: err.message });
+      }
+    }
 
-      // Respond with the saved boards
-      return res.status(200).json({
-        message: "Boards generated and saved successfully.",
-        boards: newBoards, // Returns saved boards with IDs
-      });
-    }
     if (generateType === "Boards & Tasks") {
-        
-      return res.status(200).json({ message: "Boards & Tasks" });
+      return res.status(400).json({ message: "Boards & Tasks" });
     }
-    res.status(200).json({ message: "nothing generated" });
+
+    return res.status(200).json({ message: "nothing generated" });
   } catch (err) {
     console.error("Error:", err);
-    res
+    return res
       .status(500)
       .json({ error: "Internal server error.", details: err.message });
   }
