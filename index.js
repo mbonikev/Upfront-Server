@@ -98,14 +98,14 @@ ${projectDescription}
       );
 
       // Respond with the saved boards
-      res.status(200).json({
+      return res.status(200).json({
         message: "Boards generated and saved successfully.",
         boards: newBoards, // Returns saved boards with IDs
       });
     }
     if (generateType === "Boards & Tasks") {
         
-      res.status(200).json({ message: "Boards & Tasks" });
+      return res.status(200).json({ message: "Boards & Tasks" });
     }
     res.status(200).json({ message: "nothing generated" });
   } catch (err) {
