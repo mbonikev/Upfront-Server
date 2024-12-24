@@ -135,7 +135,7 @@ app.post("/api/login", async (req, res) => {
       return res.status(200).json({
         luemail: user.email,
         luname: user.username,
-        luw1: spaces.workspace1,
+        luw1: spaces.workspace_name,
       });
     } else {
       return res.status(401).json({ msg: "Incorrect Password" });
@@ -163,8 +163,9 @@ app.post("/api/signup", async (req, res) => {
     });
     await newUser.save();
     const newWorkSpace = new Workspace({
-      workspace1: "Workspace 1",
+      workspace_name: "Workspace 1",
       user_email: email,
+      workspace_type: "must",
     });
     await newWorkSpace.save();
     res.status(200).json({
@@ -220,19 +221,21 @@ app.post("/api/newPassword", async (req, res) => {
     res.status(500).json({ msg: "Server error" });
   }
 });
-// Update workspace1
-app.patch("/api/updateWorkspace1", async (req, res) => {
-  const { w1, userEmail } = req.body;
+// Update workspace_name
+app.patch("/api/updateWorkspace", async (req, res) => {
+  const { spaceId, spaceName } = req.body;
   try {
     const result = await Workspace.findOneAndUpdate(
-      { user_email: userEmail },
-      { workspace1: w1 },
+      { _id: spaceId },
+      { workspace_name: spaceName },
       { new: true }
-    );
+    ).select("_id workspace_name workspace_type");
     if (!result) {
       return res.status(404).json({ message: "Workspace not found" });
     }
-    res.status(200).json(result);
+    res.status(200).json({
+      workspace: result,
+    });
   } catch (err) {
     res
       .status(500)
@@ -240,19 +243,39 @@ app.patch("/api/updateWorkspace1", async (req, res) => {
   }
 });
 // get users workspaces
-app.get("/api/workspaces", async (req, res) => {
+app.post("/api/workspaces", async (req, res) => {
   const { userEmail } = req.query;
   try {
     const user = await User.findOne({ email: userEmail });
     if (!user) return res.status(401).json({ msg: "User not found" });
-    const space = await Workspace.findOne({ user_email: userEmail });
+    const space = await Workspace.find({ user_email: userEmail }).select(
+      "_id workspace_name workspace_type"
+    );
     res.json({
-      dbw1: space.workspace1,
+      workspaces: space,
     });
   } catch (error) {
     res.json({ msg: "Server error", error: error });
   }
 });
+// get the current workspace
+app.get("/api/getthisworkspace", async (req, res) => {
+  const workspaceId = req.query.workspaceId;
+  const userEmail = req.query.userEmail;
+  try {
+    if (!workspaceId || !userEmail) {
+      return res.status(401).json({ msg: "Empty params" });
+    }
+    const user = await User.findOne({ email: userEmail });
+    if (!user) return res.status(401).json({ msg: "User not found" });
+    const space = await Workspace.findOne({ _id: workspaceId, user_email: userEmail });
+    if (!space) return res.status(401).json({ msg: "Workspace not found" });
+    res.status(200).json(space);
+  } catch (error) {
+    res.status(400).json({ msg: "Server error", error: error });
+  }
+});
+
 // get users
 app.get("/api/getusers", async (req, res) => {
   try {
@@ -279,11 +302,14 @@ app.get("/api/getme", async (req, res) => {
 });
 // get my projects
 app.get("/api/getmyprojects", async (req, res) => {
-  const { email } = req.query;
+  const { email, workspaceId } = req.query;
   try {
     const user = await User.findOne({ email: email });
     if (!user) return res.status(401).json({ msg: "User not found" });
-    const projects = await Project.find({ user_email: email });
+    const projects = await Project.find({
+      user_email: email,
+      workspace: workspaceId,
+    });
     res.status(200).json({ projects: projects });
   } catch (error) {
     res.status(400).json({ msg: "Server error", error: error });
