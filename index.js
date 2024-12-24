@@ -131,11 +131,11 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ msg: "User doesn't exist" });
     }
     if (await bcrypt.compare(password, user.password)) {
-      const spaces = await Workspace.findOne({ user_email: email });
+      const spaces = await Workspace.find({ user_email: email }).select('_id workspace_name workspace_type');
       return res.status(200).json({
         luemail: user.email,
         luname: user.username,
-        luw1: spaces.workspace_name,
+        workspaces: spaces,
       });
     } else {
       return res.status(401).json({ msg: "Incorrect Password" });
@@ -171,7 +171,13 @@ app.post("/api/signup", async (req, res) => {
     res.status(200).json({
       luemail: email,
       luname: userName,
-      luw1: "Workspace 1",
+      workspaces: [
+        {
+          _id: newWorkSpace._id,
+          workspace_name: newWorkSpace.workspace_name,
+          workspace_type: newWorkSpace.workspace_type,
+        },
+      ],
     });
   } catch (error) {
     console.error(error);
@@ -268,7 +274,10 @@ app.get("/api/getthisworkspace", async (req, res) => {
     }
     const user = await User.findOne({ email: userEmail });
     if (!user) return res.status(401).json({ msg: "User not found" });
-    const space = await Workspace.findOne({ _id: workspaceId, user_email: userEmail });
+    const space = await Workspace.findOne({
+      _id: workspaceId,
+      user_email: userEmail,
+    });
     if (!space) return res.status(401).json({ msg: "Workspace not found" });
     res.status(200).json(space);
   } catch (error) {
