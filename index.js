@@ -131,7 +131,9 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ msg: "User doesn't exist" });
     }
     if (await bcrypt.compare(password, user.password)) {
-      const spaces = await Workspace.find({ user_email: email }).select('_id workspace_name workspace_type');
+      const spaces = await Workspace.find({ user_email: email }).select(
+        "_id workspace_name workspace_type"
+      );
       return res.status(200).json({
         luemail: user.email,
         luname: user.username,
@@ -309,6 +311,32 @@ app.get("/api/getme", async (req, res) => {
     res.status(401).json({ msg: "Server error" });
   }
 });
+// get my recent project
+app.get("/api/getmyrecentprojects", async (req, res) => {
+  const { email } = req.query;
+  try {
+    const user = await User.findOne({ email: email });
+    if (!user) return res.status(401).json({ msg: "User not found" });
+    const projects = await Project.find({ user_email: email }).select(
+      "_id name collaborations workspace"
+    );
+    const workspaceIds = projects.map((p) => p.workspace);
+    const workspaces = await Workspace.find({
+      _id: { $in: workspaceIds },
+    }).select("_id workspace_name");
+    const workspaceMap = new Map(
+      workspaces.map((w) => [w._id.toString(), w.workspace_name])
+    );
+    const projectDetails = projects.map((p) => ({
+      ...p.toObject(),
+      workspace_name: workspaceMap.get(p.workspace.toString()) || null,
+    }));
+
+    res.status(200).json({ projects: projectDetails });
+  } catch (error) {
+    res.status(400).json({ msg: "Server error", error: error });
+  }
+});
 // get my projects
 app.get("/api/getmyprojects", async (req, res) => {
   const { email, workspaceId } = req.query;
@@ -326,20 +354,14 @@ app.get("/api/getmyprojects", async (req, res) => {
 });
 // create project
 app.post("/api/createProject", async (req, res) => {
-  const { name, desc, userEmail, workspace, collaborations } = req.body; // Added collaborations
+  const { name, desc, userEmail, workspaceId, collaborations } = req.body; // Added collaborations
   try {
     // Find the workspace by userEmail
-    const workspaceDoc = await Workspace.findOne({ user_email: userEmail });
+    const workspaceDoc = await Workspace.findOne({ _id: workspaceId, user_email: userEmail });
     if (!workspaceDoc) {
       return res
         .status(404)
         .json({ error: "Workspace not found for the given user email." });
-    }
-    let workspaceId;
-    if (workspace === "w1") {
-      workspaceId = workspaceDoc._id;
-    } else {
-      return res.status(400).json({ error: "Invalid workspace identifier." });
     }
     // Create the new project with the provided data
     const newProject = await new Project({
