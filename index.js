@@ -12,6 +12,7 @@ const TrashProject = require("./models/trashProject");
 const Board = require("./models/board");
 const Task = require("./models/task");
 const Groq = require("groq-sdk");
+const TrashWorkspace = require("./models/trashWorkspace");
 const app = express();
 app.use(express.json());
 const port = 5000;
@@ -36,7 +37,7 @@ const client = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// API endpoint to generate and save boards
+// generate and save boards
 app.post("/api/generateBoards", async (req, res) => {
   const { projectDescription, projectId, userEmail, generateType } = req.body;
 
@@ -110,7 +111,88 @@ app.post("/api/generateBoards", async (req, res) => {
     }
 
     if (generateType === "Boards & Tasks") {
-      return res.status(400).json({ message: "Boards & Tasks" });
+      const response = await client.chat.completions.create({
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          {
+            role: "user",
+            content: `Generate a structured Array of project management boards and their associated tasks based on the following project description. Each board should have a concise title (1-2 words max) representing distinct key areas of the project and boards should be (5-8 max). Each board should contain an array of at least 7 detailed tasks that fit within its scope. Each task should also have a priority level: High, Medium, or Low, and a due date in the format YYYY-MM-DD.
+
+example: [
+{
+ "board": "Todo",
+    "tasks": [
+      { "task": "Finalize the script", "priority": "High", "due_date": "2025-01-10" },
+      ],
+}
+]
+
+Please provide the output in a clean, structured format without any markdown or additional symbols.
+
+Project Description: 
+${projectDescription}
+            `,
+          },
+        ],
+        model: "llama3-8b-8192",
+      });
+
+      const generatedData = response.choices[0].message.content || "";
+      const boardsAndTasks = JSON.parse(generatedData);
+
+      const saveBoardsAndTasks = async (
+        boardsAndTasks,
+        projectId,
+        userEmail
+      ) => {
+        let newBoards = [],
+          newTasks = [];
+
+        for (const boardData of boardsAndTasks) {
+          const newBoard = new Board({
+            name: boardData.board,
+            projectId,
+            user_email: userEmail,
+          });
+          const savedBoard = await newBoard.save();
+          newBoards.push(savedBoard);
+
+          for (const taskData of boardData.tasks) {
+            const newTask = new Task({
+              name: taskData.task,
+              startingOn: taskData.due_date,
+              due: taskData.due_date,
+              priority: taskData.priority,
+              boardId: savedBoard._id,
+              currentStatus: "Not Started",
+              projectId,
+              user_email: userEmail,
+              assignedTo: [],
+            });
+            const savedTask = await newTask.save();
+            newTasks.push(savedTask);
+          }
+        }
+
+        const legitTasks = newTasks.map((task) => ({
+          id: task._id,
+          name: task.name,
+          priority: task.priority,
+          assignedTo: task.assignedTo,
+          startingOn: task.startingOn,
+          due: task.due,
+          boardId: task.boardId,
+        }));
+
+        return { newBoards, newTasks };
+      };
+
+      const { newBoards, newTasks } = await saveBoardsAndTasks(
+        boardsAndTasks,
+        projectId,
+        userEmail
+      );
+      return res.status(200).json({ boards: newBoards, tasks: newTasks });
     }
 
     return res.status(200).json({ message: "nothing generated" });
@@ -251,19 +333,22 @@ app.patch("/api/updateWorkspace", async (req, res) => {
   }
 });
 // get users workspaces
-app.post("/api/workspaces", async (req, res) => {
+app.get("/api/workspaces", async (req, res) => {
   const { userEmail } = req.query;
   try {
+    // Find the user, if not found, return 401
     const user = await User.findOne({ email: userEmail });
     if (!user) return res.status(401).json({ msg: "User not found" });
-    const space = await Workspace.find({ user_email: userEmail }).select(
+
+    // Find workspaces associated with the user and select specific fields
+    const workspaces = await Workspace.find({ user_email: userEmail }).select(
       "_id workspace_name workspace_type"
     );
-    res.json({
-      workspaces: space,
-    });
+
+    res.status(200).json({ workspaces });
   } catch (error) {
-    res.json({ msg: "Server error", error: error });
+    console.error(error); // Log the error for debugging
+    res.status(500).json({ msg: "Server error" });
   }
 });
 // get the current workspace
@@ -286,7 +371,6 @@ app.get("/api/getthisworkspace", async (req, res) => {
     res.status(400).json({ msg: "Server error", error: error });
   }
 });
-
 // get users
 app.get("/api/getusers", async (req, res) => {
   try {
@@ -317,9 +401,9 @@ app.get("/api/getmyrecentprojects", async (req, res) => {
   try {
     const user = await User.findOne({ email: email });
     if (!user) return res.status(401).json({ msg: "User not found" });
-    const projects = await Project.find({ user_email: email }).select(
-      "_id name collaborations workspace"
-    );
+    const projects = await Project.find({ user_email: email })
+      .select("_id name collaborations workspace createdAt")
+      .sort({ createdAt: -1 });
     const workspaceIds = projects.map((p) => p.workspace);
     const workspaces = await Workspace.find({
       _id: { $in: workspaceIds },
@@ -346,7 +430,7 @@ app.get("/api/getmyprojects", async (req, res) => {
     const projects = await Project.find({
       user_email: email,
       workspace: workspaceId,
-    });
+    }).sort({ createdAt: -1 });
     res.status(200).json({ projects: projects });
   } catch (error) {
     res.status(400).json({ msg: "Server error", error: error });
@@ -357,7 +441,10 @@ app.post("/api/createProject", async (req, res) => {
   const { name, desc, userEmail, workspaceId, collaborations } = req.body; // Added collaborations
   try {
     // Find the workspace by userEmail
-    const workspaceDoc = await Workspace.findOne({ _id: workspaceId, user_email: userEmail });
+    const workspaceDoc = await Workspace.findOne({
+      _id: workspaceId,
+      user_email: userEmail,
+    });
     if (!workspaceDoc) {
       return res
         .status(404)
@@ -377,6 +464,28 @@ app.post("/api/createProject", async (req, res) => {
       workspace: newProject.workspace,
       createdAt: newProject.createdAt,
     }); // Return createdAt
+  } catch (error) {
+    console.error("Error:", error);
+    res
+      .status(500)
+      .json({ error: "Error creating project.", details: error.message });
+  }
+});
+// create Workspace
+app.post("/api/createWorkspace", async (req, res) => {
+  const { name, userEmail } = req.body;
+  try {
+    const newWorkSpace = await new Workspace({
+      workspace_name: name,
+      user_email: userEmail,
+      workspace_type: "optional",
+    }).save();
+    const filteredWorkspace = {
+      _id: newWorkSpace._id,
+      workspace_name: newWorkSpace.workspace_name,
+      workspace_type: newWorkSpace.workspace_type,
+    };
+    res.status(200).json({ newWorkspace: filteredWorkspace });
   } catch (error) {
     console.error("Error:", error);
     res
@@ -511,6 +620,34 @@ app.post("/api/movetotrash", async (req, res) => {
       user_email: userEmail,
     });
     return res.status(200).json({ message: "Project moved to trash" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// delete workspace
+app.post("/api/moveWorkspaceToTrash", async (req, res) => {
+  const { projectId, userEmail } = req.body;
+  try {
+    const space = await Workspace.findOne({
+      _id: projectId,
+      user_email: userEmail,
+    });
+    if (!space) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    // Create the new workspace with the provided data
+    const trashedSpaces = await new TrashWorkspace({
+      _id: space._id,
+      workspace_name: space.workspace_name,
+      user_email: space.user_email,
+      workspace_type: space.workspace_type,
+    }).save();
+    // delete the data in project model
+    await Workspace.deleteOne({
+      _id: projectId,
+      user_email: userEmail,
+    });
+    return res.status(200).json({ message: "Workspace moved to trash" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
