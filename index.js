@@ -480,12 +480,10 @@ app.post("/api/createWorkspace", async (req, res) => {
       user_email: userEmail,
       workspace_type: "optional",
     }).save();
-    const filteredWorkspace = {
-      _id: newWorkSpace._id,
-      workspace_name: newWorkSpace.workspace_name,
-      workspace_type: newWorkSpace.workspace_type,
-    };
-    res.status(200).json({ newWorkspace: filteredWorkspace });
+    const AllWorkspaces = await Workspace.find({
+      user_email: userEmail,
+    }).select("_id workspace_name workspace_type");
+    res.status(200).json({ newWorkspaces: AllWorkspaces });
   } catch (error) {
     console.error("Error:", error);
     res
