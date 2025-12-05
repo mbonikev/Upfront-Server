@@ -14,15 +14,20 @@ const Task = require("./models/task");
 const Groq = require("groq-sdk");
 const TrashWorkspace = require("./models/trashWorkspace");
 const app = express();
-app.use(express.json());
 const port = 5000;
 const corsOptions = {
-  origin: ["https://upfront.onrender.com", "http://localhost:5173"],
+  origin: [
+    "https://upfront.onrender.com",
+    "http://localhost:5173",
+    "http://localhost:5174",
+  ],
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 };
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // handles preflight
+app.use(express.json());
 mongoose.connect(process.env.MONGODB_URI);
 // Hello
 app.get("/", async (req, res) => {
@@ -69,7 +74,7 @@ app.post("/api/generateBoards", async (req, res) => {
             `,
           },
         ],
-        model: "llama3-8b-8192",
+        model: process.env.MODEL,
       });
 
       const boardsResponse = response.choices[0].message.content || "";
@@ -116,7 +121,15 @@ app.post("/api/generateBoards", async (req, res) => {
           { role: "system", content: "You are a helpful assistant." },
           {
             role: "user",
-            content: `Generate a structured Array of project management boards and their associated tasks based on the following project description. Each board should have a concise title (1-2 words max) representing distinct key areas of the project and boards should be (5-8 max). Each board should contain an array of at least 7 detailed tasks that fit within its scope. Each task should also have a priority level: High, Medium, or Low, and a due date in the format YYYY-MM-DD.
+            content: `Generate ... ONLY return valid JSON. Do NOT add explanations.
+
+Return the JSON inside triple backticks like this:
+
+\`\`\`
+[ { ... } ]
+\`\`\`
+            
+            Generate a structured Array of project management boards and their associated tasks based on the following project description. Each board should have a concise title (1-2 words max) representing distinct key areas of the project and boards should be (5-8 max). Each board should contain an array of at least 7 detailed tasks that fit within its scope. Each task should also have a priority level: High, Medium, or Low, and a due date in the format YYYY-MM-DD.
 
 example: [
 {
@@ -134,11 +147,14 @@ ${projectDescription}
             `,
           },
         ],
-        model: "llama3-8b-8192",
+        model: process.env.MODEL,
       });
 
-      const generatedData = response.choices[0].message.content || "";
-      const boardsAndTasks = JSON.parse(generatedData);
+      const raw = response.choices[0].message.content || "";
+      const jsonString = raw
+        .replace(/^[\s\S]*?```/, "") // remove everything before first ```
+        .replace(/```[\s\S]*$/, "");
+      const boardsAndTasks = JSON.parse(jsonString);
 
       const saveBoardsAndTasks = async (
         boardsAndTasks,
